@@ -19,7 +19,7 @@ setup: install-tools
 run:
   cargo run
 
-# watch mode (debug build); needs `cargo-watch`
+# watch mode (debug build)
 watch:
   cargo watch -x 'run'
 
