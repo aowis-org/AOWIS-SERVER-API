@@ -1,20 +1,61 @@
-use std::net::SocketAddr;
+mod app;
+mod config;
+mod dto;
+mod error;
+mod handlers;
+mod middleware;
+mod routes;
+mod state;
 
-use axum::{Router, routing::get};
-use tracing::info;
+use std::process::exit;
 
-const PORT: u16 = 3000;
+use anyhow::Context;
+use dotenvy::dotenv;
+use tokio::net::TcpListener;
+use tracing::{error, info, level_filters::LevelFilter};
+use tracing_subscriber::EnvFilter;
 
+use crate::{app::app_router, config::Config};
+
+/// Entry point to catch errors and correctly log them
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().init();
+    // Setup .env loading
+    if let Err(err) = dotenv() {
+        eprintln!("WARN: Failed loading .env file: {err}.\nThis is not an error");
+    }
 
-    let app = Router::new().route("/", get(async || "Hello, world!"));
+    // Setup logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], PORT));
+    if let Err(err) = run().await {
+        error!("fatal server error: {err:?}");
+        exit(1);
+    }
+}
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+/// Actual application entry point
+async fn run() -> anyhow::Result<()> {
+    let config = Config::from_env().context("Failed to load config")?;
+
+    // Create listener
+    let addr = config.addr;
+    let listener = TcpListener::bind(addr)
+        .await
+        .context("Failed to bind listener")?;
+
     info!("Started listening on {addr}");
 
-    axum::serve(listener, app).await.unwrap();
+    // Get router and serve it with the created listener
+    axum::serve(listener, app_router())
+        .await
+        .context("Failed to start web server")?;
+
+    Ok(())
 }
